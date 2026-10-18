@@ -127,11 +127,20 @@ export class NetworkClient {
     try {
       const cleanRoom = this.roomId.toLowerCase().replace(/[^a-z0-9]/g, '');
 
+      const peerConfig = {
+        debug: 0,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+          ],
+        },
+      };
+
       if (this.role === 'display') {
         const peerId = `castpad-${cleanRoom}-screen`;
-        this.peer = new Peer(peerId, {
-          debug: 0,
-        });
+        this.peer = new Peer(peerId, peerConfig);
 
         this.peer.on('open', () => {
           if (this.disposed) return;
@@ -143,7 +152,7 @@ export class NetworkClient {
         });
 
         this.peer.on('connection', (conn) => {
-          if (!conn) return;
+          if (!conn || typeof conn.on !== 'function') return;
           this.peerConnections.set(conn.peer, conn);
 
           conn.on('open', () => {
@@ -168,14 +177,15 @@ export class NetworkClient {
           });
         });
 
-        this.peer.on('error', () => {
-          // Handled safely
+        this.peer.on('error', (err) => {
+          // Handled safely without throwing
+          if (err?.type === 'unavailable-id') {
+            console.warn('[CastPad] Peer ID already active; sharing connection channel.');
+          }
         });
       } else {
         // Controller Role
-        this.peer = new Peer({
-          debug: 0,
-        });
+        this.peer = new Peer(peerConfig);
 
         this.peer.on('open', () => {
           if (this.disposed) return;
@@ -197,11 +207,11 @@ export class NetworkClient {
   }
 
   private connectToDisplayPeer(cleanRoom: string) {
-    if (!this.peer || this.peer.destroyed || this.disposed) return;
+    if (!this.peer || this.peer.destroyed || this.disposed || typeof this.peer.connect !== 'function') return;
     try {
       const targetPeerId = `castpad-${cleanRoom}-screen`;
       const conn = this.peer.connect(targetPeerId);
-      if (!conn) return;
+      if (!conn || typeof conn.on !== 'function') return;
       this.controllerPeerConn = conn;
 
       conn.on('open', () => {

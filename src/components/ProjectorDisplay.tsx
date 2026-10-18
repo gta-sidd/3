@@ -17,6 +17,12 @@ import {
   Gamepad2,
   Flame,
   ChevronRight,
+  Copy,
+  Check,
+  ExternalLink,
+  Globe,
+  Settings2,
+  CheckCircle2,
 } from 'lucide-react';
 import { RetroArcadeEngine } from '../game/retroArcadeEngine.ts';
 import { RETRO_GAMES, RetroGameId } from '../game/retroGames.ts';
@@ -64,7 +70,17 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
   const [projectorHighContrast, setProjectorHighContrast] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
+  const [controllerUrl, setControllerUrl] = useState<string>('');
   const [showQrModal, setShowQrModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [showHostSettings, setShowHostSettings] = useState(false);
+  const [customHost, setCustomHost] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('castpad_custom_host') || '';
+    }
+    return '';
+  });
+  const [tempHost, setTempHost] = useState('');
 
   // Sync prop changes
   useEffect(() => {
@@ -74,12 +90,38 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     }
   }, [propActiveGame, activeGame]);
 
-  // Generate QR code for phone controller
+  // Compute public/accessible controller URL
+  const computeControllerUrl = useCallback((room: string, game: RetroGameId, overrideHost?: string) => {
+    if (typeof window === 'undefined') return '';
+    const activeCustom = (overrideHost !== undefined ? overrideHost : customHost).trim();
+    if (activeCustom) {
+      let host = activeCustom;
+      if (!host.startsWith('http://') && !host.startsWith('https://')) {
+        host = `https://${host}`;
+      }
+      const cleanHost = host.replace(/\/+$/, '');
+      return `${cleanHost}/?mode=controller&room=${encodeURIComponent(room)}&game=${encodeURIComponent(game)}`;
+    }
+
+    let origin = window.location.origin;
+    // CRITICAL: Google AI Studio developer URLs (ais-dev-*) require internal Google login session.
+    // When a phone camera scans it, Cloud Run returns 403 Forbidden ("You do not have access").
+    // We automatically convert 'ais-dev-' to 'ais-pre-' (the public shared preview URL)
+    // so any phone camera or external player can connect immediately without login!
+    if (origin.includes('ais-dev-')) {
+      origin = origin.replace('ais-dev-', 'ais-pre-');
+    }
+
+    const pathname = window.location.pathname || '/';
+    const cleanPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
+    return `${origin}${cleanPath}?mode=controller&room=${encodeURIComponent(room)}&game=${encodeURIComponent(game)}`;
+  }, [customHost]);
+
+  // Generate QR code for phone controller using the public accessible URL
   useEffect(() => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    const pathname = typeof window !== 'undefined' ? window.location.pathname : '/';
-    const controllerUrl = `${origin}${pathname}?mode=controller&room=${roomId}&game=${activeGame}`;
-    QRCode.toDataURL(controllerUrl, {
+    const fullUrl = computeControllerUrl(roomId, activeGame);
+    setControllerUrl(fullUrl);
+    QRCode.toDataURL(fullUrl, {
       width: 320,
       margin: 1,
       color: {
@@ -89,7 +131,28 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     })
       .then((url) => setQrCodeUrl(url))
       .catch(() => {});
-  }, [roomId, activeGame]);
+  }, [roomId, activeGame, computeControllerUrl]);
+
+  const handleCopyLink = () => {
+    if (!controllerUrl) return;
+    navigator.clipboard.writeText(controllerUrl).then(() => {
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }).catch(() => {});
+  };
+
+  const handleSaveCustomHost = () => {
+    const trimmed = tempHost.trim();
+    setCustomHost(trimmed);
+    if (typeof window !== 'undefined') {
+      if (trimmed) {
+        localStorage.setItem('castpad_custom_host', trimmed);
+      } else {
+        localStorage.removeItem('castpad_custom_host');
+      }
+    }
+    setShowHostSettings(false);
+  };
 
   // Switch game cartridge
   const selectGame = useCallback((gameId: RetroGameId) => {
@@ -516,31 +579,135 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
               </p>
 
               {/* QR Code and Quick Pairing Box */}
-              <div className="w-full bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 mb-5 flex flex-col sm:flex-row items-center justify-center gap-4">
-                {qrCodeUrl && (
-                  <img
-                    src={qrCodeUrl}
-                    alt="Pair phone controller QR code"
-                    className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg border border-cyan-500/50 shadow-md"
-                  />
-                )}
-                <div className="text-left text-xs font-mono space-y-1">
-                  <div className="text-cyan-300 font-bold uppercase flex items-center gap-1.5">
-                    <Smartphone className="w-4 h-4" /> SCAN WITH YOUR SMARTPHONE
-                  </div>
-                  <p className="text-slate-300 text-[11px]">
-                    Turns your phone into a dedicated gamepad for <strong>{currentDef.title}</strong> with zero game lag!
-                  </p>
-                  <div className="text-slate-400 pt-1 text-[11px]">
-                    ROOM: <span className="text-cyan-400 font-bold text-xs">{roomId}</span>
-                  </div>
-                  {connectedControllers.length > 0 && (
-                    <div className="text-emerald-400 font-bold text-[11px]">
-                      ✓ Phone controller connected!
+              <div className="w-full bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
+                <div className="flex flex-col sm:flex-row items-center gap-4 shrink-0">
+                  {qrCodeUrl && (
+                    <div className="relative group">
+                      <img
+                        src={qrCodeUrl}
+                        alt="Pair phone controller QR code"
+                        className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg border-2 border-cyan-400 p-1.5 bg-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.25)]"
+                      />
+                      <div className="absolute -bottom-2 -right-2 px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-bold text-[9px] font-mono tracking-wider uppercase shadow">
+                        PUBLIC
+                      </div>
                     </div>
                   )}
+                  <div className="space-y-1.5 max-w-xs">
+                    <div className="text-cyan-300 font-bold uppercase text-xs flex items-center gap-1.5 font-mono">
+                      <Smartphone className="w-4 h-4 text-cyan-400" /> SCAN WITH PHONE CAMERA
+                    </div>
+                    <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 font-semibold">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <span>Public Link (No Google Login Required)</span>
+                    </div>
+                    <p className="text-slate-300 text-[11px] leading-relaxed">
+                      Turns your phone into an authentic retro controller for <strong>{currentDef.title}</strong> with zero lag.
+                    </p>
+                    <div className="flex items-center gap-2 pt-0.5">
+                      <span className="text-[11px] font-mono text-slate-400">ROOM:</span>
+                      <span className="text-xs font-mono font-bold text-cyan-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
+                        {roomId}
+                      </span>
+                      {connectedControllers.length > 0 && (
+                        <span className="text-emerald-400 font-bold text-[11px] font-mono flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          {connectedControllers.length} CONNECTED
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Direct Link Action Box */}
+                <div className="flex flex-col gap-2 w-full sm:w-auto shrink-0 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3">
+                  <button
+                    onClick={handleCopyLink}
+                    className={`py-2 px-3 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
+                      copiedLink
+                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                        : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
+                    }`}
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedLink ? 'LINK COPIED!' : 'COPY PHONE LINK'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (onOpenPhoneView) {
+                        onOpenPhoneView();
+                      } else if (controllerUrl) {
+                        window.open(controllerUrl, '_blank');
+                      }
+                    }}
+                    className="py-1.5 px-3 rounded-lg text-[11px] font-mono text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <ExternalLink className="w-3 h-3 text-cyan-400" />
+                    <span>OPEN ON THIS DEVICE</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setTempHost(customHost);
+                      setShowHostSettings(!showHostSettings);
+                    }}
+                    className="text-[10px] font-mono text-slate-500 hover:text-slate-300 flex items-center justify-center gap-1 transition-colors"
+                  >
+                    <Settings2 className="w-3 h-3" />
+                    <span>{customHost ? 'CUSTOM HOST ACTIVE' : 'HOST / LAN SETTINGS'}</span>
+                  </button>
                 </div>
               </div>
+
+              {/* Host / LAN IP Configuration Drawer */}
+              {showHostSettings && (
+                <div className="w-full p-3 bg-slate-950 border border-slate-800 rounded-xl mb-4 text-left font-mono text-xs space-y-2">
+                  <div className="flex items-center justify-between text-slate-300 font-bold">
+                    <span className="flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                      CONTROLLER HOST SETTINGS
+                    </span>
+                    <button
+                      onClick={() => setShowHostSettings(false)}
+                      className="text-slate-400 hover:text-white"
+                    >
+                      [X]
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed">
+                    By default, the QR code uses the public shared link (<code>ais-pre-*</code>) so phone cameras scan without needing Google login. If playing on your local Wi-Fi outside the cloud, enter your computer&apos;s LAN IP (e.g., <code>http://192.168.1.50:3000</code>).
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={tempHost}
+                      onChange={(e) => setTempHost(e.target.value)}
+                      placeholder="e.g. https://ais-pre-... or 192.168.1.15:3000"
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-cyan-400"
+                    />
+                    <button
+                      onClick={handleSaveCustomHost}
+                      className="px-3 py-1.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-lg text-xs"
+                    >
+                      APPLY
+                    </button>
+                    {customHost && (
+                      <button
+                        onClick={() => {
+                          setTempHost('');
+                          setCustomHost('');
+                          if (typeof window !== 'undefined') localStorage.removeItem('castpad_custom_host');
+                          setShowHostSettings(false);
+                        }}
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs"
+                      >
+                        RESET
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Start Actions */}
               <div className="flex flex-col sm:flex-row gap-2.5 w-full">
@@ -644,37 +811,87 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
 
         {/* MODAL: QR Code popup */}
         {showQrModal && (
-          <div className="absolute inset-0 bg-slate-950/85 backdrop-blur-xs flex items-center justify-center p-6 z-30 pointer-events-auto">
-            <div className="max-w-md w-full bg-slate-900 border border-cyan-500/60 rounded-2xl p-6 text-center shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 sm:p-6 z-30 pointer-events-auto">
+            <div className="max-w-lg w-full bg-slate-900 border-2 border-cyan-500/60 rounded-2xl p-6 text-center shadow-2xl">
+              <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2 text-cyan-400 font-mono font-bold text-sm">
-                  <Smartphone className="w-5 h-5" />
+                  <Smartphone className="w-5 h-5 text-cyan-400" />
                   CONNECT PHONE CONTROLLER
                 </div>
                 <button
                   onClick={() => setShowQrModal(false)}
-                  className="text-slate-400 hover:text-white font-mono text-xs px-2 py-1 bg-slate-800 rounded"
+                  className="text-slate-400 hover:text-white font-mono text-xs px-2.5 py-1 bg-slate-800 rounded-lg hover:bg-slate-700"
                 >
-                  [X]
+                  [CLOSE]
                 </button>
               </div>
 
+              {/* Public Access Badge */}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-xs font-semibold mb-3">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>Public Link: Anyone can scan without Google Login</span>
+              </div>
+
               {qrCodeUrl && (
-                <div className="flex justify-center mb-4">
-                  <img
-                    src={qrCodeUrl}
-                    alt="Pair phone QR code"
-                    className="w-52 h-52 rounded-xl border-2 border-cyan-400 p-2 bg-slate-950"
-                  />
+                <div className="flex justify-center mb-3">
+                  <div className="relative p-2 rounded-2xl bg-slate-950 border-2 border-cyan-400 shadow-[0_0_25px_rgba(0,240,255,0.25)]">
+                    <img
+                      src={qrCodeUrl}
+                      alt="Pair phone QR code"
+                      className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl"
+                    />
+                  </div>
                 </div>
               )}
 
-              <p className="text-slate-300 font-mono text-xs mb-3">
-                Scan with your phone&apos;s camera. The game graphics stay on this big projector screen, while your phone turns into an ergonomic gamepad tailored for <strong>{currentDef.title}</strong>!
-              </p>
+              <div className="space-y-2 mb-4 text-xs font-mono">
+                <div className="p-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-left">
+                  <div>
+                    <div className="text-[10px] text-slate-400 uppercase">ROOM CODE</div>
+                    <div className="text-cyan-300 font-bold text-base">{roomId}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] text-slate-400 uppercase">ACTIVE CARTRIDGE</div>
+                    <div className="text-amber-400 font-bold text-xs">{currentDef.title}</div>
+                  </div>
+                </div>
 
-              <div className="p-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-400">
-                ROOM: <span className="text-cyan-400 font-bold text-base">{roomId}</span>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleCopyLink}
+                    className={`flex-1 py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
+                      copiedLink
+                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                        : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.3)]'
+                    }`}
+                  >
+                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedLink ? 'LINK COPIED!' : 'COPY CONTROLLER LINK'}</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (onOpenPhoneView) {
+                        setShowQrModal(false);
+                        onOpenPhoneView();
+                      } else if (controllerUrl) {
+                        window.open(controllerUrl, '_blank');
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
+                  >
+                    <ExternalLink className="w-4 h-4 text-cyan-400" />
+                    <span>OPEN TAB</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Helpful Explanation for "No Access" error */}
+              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-left text-[11px] font-mono text-slate-400 leading-relaxed">
+                <strong className="text-slate-200 block mb-1">
+                  💡 Scanned and saw &ldquo;no access&rdquo; before?
+                </strong>
+                Google AI Studio&apos;s developer links require Google workspace sign-in. This QR code automatically uses the public shared link (<code>ais-pre-*</code>) so phone cameras can scan and play immediately with zero login or permission issues!
               </div>
             </div>
           </div>

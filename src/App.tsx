@@ -104,7 +104,7 @@ export default function App() {
             <button
               onClick={() => handleSwitchMode('controller')}
               className={`px-2.5 sm:px-3 py-1 rounded-md border flex items-center gap-1.5 transition-colors ${
-                mode === 'controller'
+                (mode as string) === 'controller'
                   ? 'bg-rose-500/20 border-rose-500 text-rose-300 font-bold'
                   : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white'
               }`}

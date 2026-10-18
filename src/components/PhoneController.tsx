@@ -958,7 +958,8 @@ export const PhoneController: React.FC<PhoneControllerProps> = ({
           />
           <button
             onClick={() => {
-              if (wsRef.current) wsRef.current.close();
+              if (netRef.current) netRef.current.dispose();
+              setConnected(false);
               triggerHaptic(50);
             }}
             title="Reconnect"
