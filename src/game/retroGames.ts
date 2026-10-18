@@ -30,8 +30,8 @@ export const RETRO_GAMES: RetroGameDef[] = [
     badge: 'NES D-PAD + [A] [B]',
     accentColor: '#ef4444',
     controllerType: 'platformer_nes',
-    controlsSummary: 'D-Pad Left/Right · [A] Jump · [B] Sprint Dash / Fireball',
-    description: 'Iconic side-scrolling platformer! Stomp Goombas, punch mystery [?] blocks for coins, leap over warp pipes, and slide down the flagpole.',
+    controlsSummary: 'D-Pad Left/Right · [A] Jump · [B] Sprint Dash & Fireball · Power-Ups',
+    description: 'Authentic 1985 platformer! Collect Super Mushrooms & Fire Flowers, become invincible with Starman, smash bricks, kick sliding Koopa shells, and leap to the flagpole!',
   },
   {
     id: 'void_horizon',

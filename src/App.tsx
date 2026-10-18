@@ -150,7 +150,7 @@ export default function App() {
         )}
 
         {mode === 'controller' && (
-          <div className="w-full min-h-screen bg-slate-950 flex flex-col">
+          <div className="w-full min-h-[100dvh] h-[100dvh] bg-slate-950 flex flex-col overflow-hidden">
             <PhoneController
               roomId={roomId}
               activeGame={activeGame}

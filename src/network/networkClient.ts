@@ -11,6 +11,7 @@ export interface NetworkCallbacks {
   onControllerLeft?: (playerId: number) => void;
   onInput?: (input: GameInput, playerId: number) => void;
   onGameChanged?: (gameId: RetroGameId) => void;
+  onStageChanged?: (stageId: string) => void;
   onHapticEvent?: (data: { pattern: number[]; health?: number; shield?: number; score?: number }) => void;
   onPing?: (ms: number) => void;
 }
@@ -266,6 +267,9 @@ export class NetworkClient {
     } else if (msg.type === 'game_changed') {
       const gameId = msg.gameId as RetroGameId;
       if (gameId) this.callbacks.onGameChanged?.(gameId);
+    } else if (msg.type === 'stage_changed') {
+      const stageId = msg.stageId as string;
+      if (stageId) this.callbacks.onStageChanged?.(stageId);
     } else if (msg.type === 'haptic_event') {
       this.callbacks.onHapticEvent?.({
         pattern: (msg.pattern as number[]) || [50],
@@ -320,6 +324,27 @@ export class NetworkClient {
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ type: 'change_game', gameId }));
+    }
+
+    if (this.role === 'display') {
+      for (const conn of this.peerConnections.values()) {
+        if (conn.open) conn.send(payload);
+      }
+    } else if (this.controllerPeerConn && this.controllerPeerConn.open) {
+      this.controllerPeerConn.send(payload);
+    }
+  }
+
+  // Send Stage Change
+  public sendStageChange(stageId: string) {
+    const payload = { type: 'stage_changed', stageId };
+
+    try {
+      this.broadcastChannel?.postMessage(payload);
+    } catch { /* ignore */ }
+
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify(payload));
     }
 
     if (this.role === 'display') {

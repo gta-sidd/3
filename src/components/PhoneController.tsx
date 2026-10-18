@@ -60,6 +60,7 @@ export const PhoneController: React.FC<PhoneControllerProps> = ({
   const [gyroEnabled, setGyroEnabled] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showGameSelector, setShowGameSelector] = useState(false);
+  const [plumberStage, setPlumberStage] = useState<'1-1' | '1-2' | '1-3' | '1-4'>('1-1');
 
   // Ship/Game telemetry relayed from display to controller
   const [telemetry, setTelemetry] = useState({
@@ -69,9 +70,16 @@ export const PhoneController: React.FC<PhoneControllerProps> = ({
     energy: 100,
     bombCharge: 100,
     score: 0,
+    wave: 1,
   });
 
   const netRef = useRef<NetworkClient | null>(null);
+
+  const handleSelectStage = (stageId: '1-1' | '1-2' | '1-3' | '1-4') => {
+    setPlumberStage(stageId);
+    triggerHaptic([40, 40]);
+    netRef.current?.sendStageChange(stageId);
+  };
 
   // Controller inputs
   const inputRef = useRef<GameInput>({
@@ -272,7 +280,7 @@ export const PhoneController: React.FC<PhoneControllerProps> = ({
   };
 
   return (
-    <div className={`relative flex flex-col justify-between w-full h-full bg-slate-950 text-slate-100 select-none overflow-hidden touch-none ${standalone ? 'min-h-screen' : ''}`}>
+    <div className={`relative flex flex-col justify-between w-full h-full bg-slate-950 text-slate-100 select-none overflow-hidden touch-none ${standalone ? 'min-h-[100dvh] h-[100dvh]' : ''}`}>
       {/* Background Controller Texture */}
       <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-40 pointer-events-none" />
 

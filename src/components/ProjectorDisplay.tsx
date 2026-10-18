@@ -90,36 +90,39 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     }
   }, [propActiveGame, activeGame]);
 
-  // Compute public/accessible controller URL
-  const computeControllerUrl = useCallback((room: string, game: RetroGameId, overrideHost?: string) => {
+  const [urlMode, setUrlMode] = useState<'dev' | 'shared' | 'custom'>('dev');
+
+  // Compute controller URL based on selected target mode
+  const computeControllerUrl = useCallback((room: string, game: RetroGameId, targetMode: 'dev' | 'shared' | 'custom' = urlMode, overrideHost?: string) => {
     if (typeof window === 'undefined') return '';
-    const activeCustom = (overrideHost !== undefined ? overrideHost : customHost).trim();
-    if (activeCustom) {
-      let host = activeCustom;
-      if (!host.startsWith('http://') && !host.startsWith('https://')) {
-        host = `https://${host}`;
+    if (targetMode === 'custom') {
+      const activeCustom = (overrideHost !== undefined ? overrideHost : customHost).trim();
+      if (activeCustom) {
+        let host = activeCustom;
+        if (!host.startsWith('http://') && !host.startsWith('https://')) {
+          host = `https://${host}`;
+        }
+        const cleanHost = host.replace(/\/+$/, '');
+        return `${cleanHost}/?mode=controller&room=${encodeURIComponent(room)}&game=${encodeURIComponent(game)}`;
       }
-      const cleanHost = host.replace(/\/+$/, '');
-      return `${cleanHost}/?mode=controller&room=${encodeURIComponent(room)}&game=${encodeURIComponent(game)}`;
     }
 
     let origin = window.location.origin;
-    // CRITICAL: Google AI Studio developer URLs (ais-dev-*) require internal Google login session.
-    // When a phone camera scans it, Cloud Run returns 403 Forbidden ("You do not have access").
-    // We automatically convert 'ais-dev-' to 'ais-pre-' (the public shared preview URL)
-    // so any phone camera or external player can connect immediately without login!
-    if (origin.includes('ais-dev-')) {
-      origin = origin.replace('ais-dev-', 'ais-pre-');
+    if (targetMode === 'shared') {
+      // Shared preview URL (requires clicking 'Share' in AI Studio toolbar)
+      if (origin.includes('ais-dev-')) {
+        origin = origin.replace('ais-dev-', 'ais-pre-');
+      }
     }
 
     const pathname = window.location.pathname || '/';
     const cleanPath = pathname.endsWith('/') ? pathname : `${pathname}/`;
     return `${origin}${cleanPath}?mode=controller&room=${encodeURIComponent(room)}&game=${encodeURIComponent(game)}`;
-  }, [customHost]);
+  }, [urlMode, customHost]);
 
-  // Generate QR code for phone controller using the public accessible URL
+  // Generate QR code for phone controller using the selected target URL
   useEffect(() => {
-    const fullUrl = computeControllerUrl(roomId, activeGame);
+    const fullUrl = computeControllerUrl(roomId, activeGame, urlMode);
     setControllerUrl(fullUrl);
     QRCode.toDataURL(fullUrl, {
       width: 320,
@@ -131,7 +134,7 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
     })
       .then((url) => setQrCodeUrl(url))
       .catch(() => {});
-  }, [roomId, activeGame, computeControllerUrl]);
+  }, [roomId, activeGame, urlMode, computeControllerUrl]);
 
   const handleCopyLink = () => {
     if (!controllerUrl) return;
@@ -579,84 +582,142 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
               </p>
 
               {/* QR Code and Quick Pairing Box */}
-              <div className="w-full bg-slate-950/90 border border-cyan-500/30 rounded-xl p-4 mb-4 flex flex-col sm:flex-row items-center justify-between gap-4 text-left">
-                <div className="flex flex-col sm:flex-row items-center gap-4 shrink-0">
-                  {qrCodeUrl && (
-                    <div className="relative group">
-                      <img
-                        src={qrCodeUrl}
-                        alt="Pair phone controller QR code"
-                        className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg border-2 border-cyan-400 p-1.5 bg-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.25)]"
-                      />
-                      <div className="absolute -bottom-2 -right-2 px-1.5 py-0.5 rounded bg-emerald-500 text-slate-950 font-bold text-[9px] font-mono tracking-wider uppercase shadow">
-                        PUBLIC
-                      </div>
-                    </div>
-                  )}
-                  <div className="space-y-1.5 max-w-xs">
-                    <div className="text-cyan-300 font-bold uppercase text-xs flex items-center gap-1.5 font-mono">
-                      <Smartphone className="w-4 h-4 text-cyan-400" /> SCAN WITH PHONE CAMERA
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px] font-mono text-emerald-400 font-semibold">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                      <span>Public Link (No Google Login Required)</span>
-                    </div>
-                    <p className="text-slate-300 text-[11px] leading-relaxed">
-                      Turns your phone into an authentic retro controller for <strong>{currentDef.title}</strong> with zero lag.
-                    </p>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      <span className="text-[11px] font-mono text-slate-400">ROOM:</span>
-                      <span className="text-xs font-mono font-bold text-cyan-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
-                        {roomId}
-                      </span>
-                      {connectedControllers.length > 0 && (
-                        <span className="text-emerald-400 font-bold text-[11px] font-mono flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          {connectedControllers.length} CONNECTED
-                        </span>
-                      )}
-                    </div>
+              <div className="w-full bg-slate-950/95 border border-cyan-500/40 rounded-xl p-4 mb-4 flex flex-col gap-3 text-left shadow-xl">
+                {/* Connection Target Switcher Tabs */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+                  <span className="text-[11px] font-mono font-bold text-slate-400 uppercase flex items-center gap-1.5">
+                    <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                    CONNECTION MODE:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1 font-mono text-[10px]">
+                    <button
+                      onClick={() => setUrlMode('dev')}
+                      className={`px-2 py-1 rounded-md border transition-all ${
+                        urlMode === 'dev'
+                          ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 font-bold'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Active Session (Dev)
+                    </button>
+                    <button
+                      onClick={() => setUrlMode('shared')}
+                      className={`px-2 py-1 rounded-md border transition-all ${
+                        urlMode === 'shared'
+                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 font-bold'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Public Preview (ais-pre)
+                    </button>
+                    <button
+                      onClick={() => {
+                        setUrlMode('custom');
+                        setShowHostSettings(true);
+                      }}
+                      className={`px-2 py-1 rounded-md border transition-all ${
+                        urlMode === 'custom'
+                          ? 'bg-amber-500/20 border-amber-400 text-amber-300 font-bold'
+                          : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      GitHub / Custom IP
+                    </button>
                   </div>
                 </div>
 
-                {/* Direct Link Action Box */}
-                <div className="flex flex-col gap-2 w-full sm:w-auto shrink-0 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3">
-                  <button
-                    onClick={handleCopyLink}
-                    className={`py-2 px-3 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
-                      copiedLink
-                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-                        : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
-                    }`}
-                  >
-                    {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedLink ? 'LINK COPIED!' : 'COPY PHONE LINK'}</span>
-                  </button>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="flex flex-col sm:flex-row items-center gap-4 shrink-0">
+                    {qrCodeUrl && (
+                      <div className="relative group shrink-0">
+                        <img
+                          src={qrCodeUrl}
+                          alt="Pair phone controller QR code"
+                          className="w-28 h-28 sm:w-32 sm:h-32 rounded-lg border-2 border-cyan-400 p-1 bg-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.25)]"
+                        />
+                        <div className={`absolute -bottom-2 -right-2 px-1.5 py-0.5 rounded font-bold text-[9px] font-mono tracking-wider uppercase shadow ${
+                          urlMode === 'shared' ? 'bg-emerald-500 text-slate-950' : urlMode === 'dev' ? 'bg-cyan-500 text-slate-950' : 'bg-amber-500 text-slate-950'
+                        }`}>
+                          {urlMode.toUpperCase()}
+                        </div>
+                      </div>
+                    )}
+                    <div className="space-y-1.5 max-w-sm">
+                      <div className="text-cyan-300 font-bold uppercase text-xs flex items-center gap-1.5 font-mono">
+                        <Smartphone className="w-4 h-4 text-cyan-400" /> SCAN WITH PHONE CAMERA
+                      </div>
 
-                  <button
-                    onClick={() => {
-                      if (onOpenPhoneView) {
-                        onOpenPhoneView();
-                      } else if (controllerUrl) {
-                        window.open(controllerUrl, '_blank');
-                      }
-                    }}
-                    className="py-1.5 px-3 rounded-lg text-[11px] font-mono text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <ExternalLink className="w-3 h-3 text-cyan-400" />
-                    <span>OPEN ON THIS DEVICE</span>
-                  </button>
+                      {/* Mode guidance */}
+                      {urlMode === 'dev' && (
+                        <div className="p-1.5 rounded bg-cyan-950/40 border border-cyan-800/60 text-[10px] font-mono text-cyan-300 leading-tight">
+                          💡 <strong>Active Session:</strong> On your phone, open Safari/Chrome and be logged into your Google account (<code>advocatesinghrahul@gmail.com</code>).
+                        </div>
+                      )}
+                      {urlMode === 'shared' && (
+                        <div className="p-1.5 rounded bg-emerald-950/40 border border-emerald-800/60 text-[10px] font-mono text-emerald-300 leading-tight">
+                          ⭐ <strong>Public Preview:</strong> Click the <strong>&ldquo;Share&rdquo;</strong> button in AI Studio top bar to activate. If you see a blank screen, switch to Active Session!
+                        </div>
+                      )}
+                      {urlMode === 'custom' && (
+                        <div className="p-1.5 rounded bg-amber-950/40 border border-amber-800/60 text-[10px] font-mono text-amber-300 leading-tight">
+                          🌐 <strong>Custom Host:</strong> Pointing to <code>{customHost || 'Default Domain'}</code>.
+                        </div>
+                      )}
 
-                  <button
-                    onClick={() => {
-                      setTempHost(customHost);
-                      setShowHostSettings(!showHostSettings);
-                    }}
-                    className="text-[10px] font-mono text-slate-500 hover:text-slate-300 flex items-center justify-center gap-1 transition-colors"
-                  >
-                    <Settings2 className="w-3 h-3" />
-                    <span>{customHost ? 'CUSTOM HOST ACTIVE' : 'HOST / LAN SETTINGS'}</span>
-                  </button>
+                      <p className="text-slate-300 text-[11px] leading-relaxed">
+                        Instant zero-lag wireless gamepad with D-Pad, Jump [A], Sprint/Fire [B], & Haptics for <strong>{currentDef.title}</strong>.
+                      </p>
+                      <div className="flex items-center gap-2 pt-0.5">
+                        <span className="text-[11px] font-mono text-slate-400">ROOM:</span>
+                        <span className="text-xs font-mono font-bold text-cyan-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700">
+                          {roomId}
+                        </span>
+                        {connectedControllers.length > 0 && (
+                          <span className="text-emerald-400 font-bold text-[11px] font-mono flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                            {connectedControllers.length} CONNECTED
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Direct Link Action Box */}
+                  <div className="flex flex-col gap-2 w-full sm:w-auto shrink-0 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3">
+                    <button
+                      onClick={() => {
+                        const targetUrl = computeControllerUrl(roomId, activeGame, 'dev');
+                        window.open(targetUrl, 'castpad_controller', 'width=420,height=820,left=120,top=80');
+                      }}
+                      className="py-2.5 px-3 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.3)]"
+                      title="Launch phone controller window on this computer"
+                    >
+                      <ExternalLink className="w-4 h-4 text-slate-950" />
+                      <span>OPEN GAMEPAD IN NEW WINDOW</span>
+                    </button>
+
+                    <button
+                      onClick={handleCopyLink}
+                      className={`py-2 px-3 rounded-lg text-xs font-mono font-bold flex items-center justify-center gap-1.5 transition-all ${
+                        copiedLink
+                          ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                          : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-slate-700'
+                      }`}
+                    >
+                      {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedLink ? 'LINK COPIED!' : 'COPY GAMEPAD LINK'}</span>
+                    </button>
+
+                    {onOpenPhoneView && (
+                      <button
+                        onClick={onOpenPhoneView}
+                        className="py-1.5 px-3 rounded-lg text-[11px] font-mono text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 border border-slate-800 flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        <Smartphone className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>SWITCH THIS TAB TO GAMEPAD</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -826,10 +887,41 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
                 </button>
               </div>
 
-              {/* Public Access Badge */}
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-400 font-mono text-xs font-semibold mb-3">
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Public Link: Anyone can scan without Google Login</span>
+              {/* Target Mode Selector in Modal */}
+              <div className="flex items-center justify-center gap-1.5 p-1 bg-slate-950 rounded-xl border border-slate-800 mb-3">
+                <button
+                  onClick={() => setUrlMode('dev')}
+                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-mono font-bold transition-all ${
+                    urlMode === 'dev'
+                      ? 'bg-cyan-500/20 border border-cyan-400 text-cyan-300'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Active Dev
+                </button>
+                <button
+                  onClick={() => setUrlMode('shared')}
+                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-mono font-bold transition-all ${
+                    urlMode === 'shared'
+                      ? 'bg-emerald-500/20 border border-emerald-400 text-emerald-300'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Public Preview
+                </button>
+                <button
+                  onClick={() => {
+                    setUrlMode('custom');
+                    setShowHostSettings(true);
+                  }}
+                  className={`flex-1 py-1 px-2 rounded-lg text-xs font-mono font-bold transition-all ${
+                    urlMode === 'custom'
+                      ? 'bg-amber-500/20 border border-amber-400 text-amber-300'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Custom / LAN
+                </button>
               </div>
 
               {qrCodeUrl && (
@@ -840,6 +932,11 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
                       alt="Pair phone QR code"
                       className="w-48 h-48 sm:w-56 sm:h-56 rounded-xl"
                     />
+                    <div className={`absolute -bottom-2 -right-2 px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase shadow ${
+                      urlMode === 'shared' ? 'bg-emerald-500 text-slate-950' : urlMode === 'dev' ? 'bg-cyan-500 text-slate-950' : 'bg-amber-500 text-slate-950'
+                    }`}>
+                      {urlMode.toUpperCase()}
+                    </div>
                   </div>
                 </div>
               )}
@@ -856,42 +953,40 @@ export const ProjectorDisplay: React.FC<ProjectorDisplayProps> = ({
                   </div>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <button
-                    onClick={handleCopyLink}
-                    className={`flex-1 py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${
-                      copiedLink
-                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-                        : 'bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.3)]'
-                    }`}
+                    onClick={() => {
+                      const targetUrl = computeControllerUrl(roomId, activeGame, 'dev');
+                      window.open(targetUrl, 'castpad_controller', 'width=420,height=820,left=120,top=80');
+                    }}
+                    className="flex-1 py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all bg-cyan-500 hover:bg-cyan-400 text-slate-950 shadow-[0_0_15px_rgba(0,240,255,0.3)] text-xs"
                   >
-                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                    <span>{copiedLink ? 'LINK COPIED!' : 'COPY CONTROLLER LINK'}</span>
+                    <ExternalLink className="w-4 h-4 text-slate-950" />
+                    <span>LAUNCH NEW WINDOW</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      if (onOpenPhoneView) {
-                        setShowQrModal(false);
-                        onOpenPhoneView();
-                      } else if (controllerUrl) {
-                        window.open(controllerUrl, '_blank');
-                      }
-                    }}
-                    className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-1.5 transition-colors"
+                    onClick={handleCopyLink}
+                    className={`py-2 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all text-xs ${
+                      copiedLink
+                        ? 'bg-emerald-500 text-slate-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                    }`}
                   >
-                    <ExternalLink className="w-4 h-4 text-cyan-400" />
-                    <span>OPEN TAB</span>
+                    {copiedLink ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                    <span>{copiedLink ? 'COPIED!' : 'COPY LINK'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Helpful Explanation for "No Access" error */}
-              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-left text-[11px] font-mono text-slate-400 leading-relaxed">
-                <strong className="text-slate-200 block mb-1">
-                  💡 Scanned and saw &ldquo;no access&rdquo; before?
+              {/* Helpful Explanation for "No Access" vs "Blank Screen" */}
+              <div className="p-3 bg-slate-950/70 border border-slate-800 rounded-xl text-left text-[11px] font-mono text-slate-400 leading-relaxed space-y-1">
+                <strong className="text-slate-200 block">
+                  💡 Tips for Scanning:
                 </strong>
-                Google AI Studio&apos;s developer links require Google workspace sign-in. This QR code automatically uses the public shared link (<code>ais-pre-*</code>) so phone cameras can scan and play immediately with zero login or permission issues!
+                <p>• <strong>Active Dev:</strong> If scanning, ensure your phone browser is signed into your Google account (<code>advocatesinghrahul@gmail.com</code>).</p>
+                <p>• <strong>Public Preview:</strong> Click the &ldquo;Share&rdquo; button in AI Studio top bar to deploy. If not deployed yet, it returns a 404 blank screen.</p>
+                <p>• <strong>Instant Test:</strong> Click &ldquo;LAUNCH NEW WINDOW&rdquo; to test the phone gamepad right now on this device!</p>
               </div>
             </div>
           </div>
